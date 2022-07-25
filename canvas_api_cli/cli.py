@@ -1,6 +1,8 @@
+import typing as t
 import re
 import sys
 from typing import Literal
+import webbrowser
 import toml
 import xdg
 import arc
@@ -17,7 +19,7 @@ class CanvasApi(requests.Session):
         self.token = token
 
     def request(self, method, url, *args, **kwargs):
-        url = parse.urljoin(self.prefix_url, url)
+        url = url if url.startswith("http") else parse.urljoin(self.prefix_url, url)
         headers = kwargs.get("headers", {})
         headers["Authorization"] = f"Bearer {self.token}"
         kwargs["headers"] = headers
@@ -33,9 +35,8 @@ class CanvasState(arc.types.State):
 def init(ctx):
     config = toml.load("canvas.toml")
     ctx.state["config"] = config
-    ctx.state["api"] = CanvasApi(
-        prefix_url=f"https://{config['domain']}/api/v1/", token=config["token"]
-    )
+    url = f"https://{config['domain']}/api/v1/"
+    ctx.state["api"] = CanvasApi(prefix_url=url, token=config["token"])
     yield
 
 
@@ -54,11 +55,19 @@ def info(string: str):
 @arc.group
 class QueryParams:
     endpoint: str = arc.Argument(description="The Canvas Endpoint to hit")
+
+    query: list[str] = arc.Option(
+        short="q",
+        description="Append to the query string",
+        default=[],  # This default collection type isn't working for some reason
+    )
     raw: bool = arc.Flag(
         short="r",
         description="Don't perform any formatting on the body content. Useful if you want to pipe the data somewhere",
     )
-    query: list[str] = arc.Option(short="q", description="Append to the query string")
+    pagination: bool = arc.Flag(
+        short="p", description="Display pagination information, if it exists"
+    )
 
 
 @cli.subcommand(("query", "q"))
@@ -72,6 +81,7 @@ def query(
     # Arguments
     method: HTTP method to use
     """
+    params.query = params.query or []
     query_params = {key: value for key, value in (v.split("=") for v in params.query)}
     res = state.api.request(method, params.endpoint, params=query_params)
 
@@ -80,7 +90,7 @@ def query(
     else:
         rich.print_json(res.text)
 
-    if method.lower() == "get" and res.headers["Link"]:
+    if method.lower() == "get" and res.headers["Link"] and params.pagination:
         regex = re.compile(r"<(.+)>; rel=\"(.+)\"")
         info("Result was paginated")
         for data in res.headers["Link"].split(","):
@@ -102,7 +112,7 @@ def get(params: QueryParams, ctx: arc.Context):
 
     shorthand for: canvas query <endpoint> -M GET
     """
-    res = ctx.execute(query, params=params, method="GET")
+    ctx.execute(query, params=params, method="GET")
 
 
 @cli.subcommand(("post", "p"))
@@ -130,3 +140,18 @@ def delete(params: QueryParams, ctx: arc.Context):
     shorthand for: canvas query <endpoint> -M DELETE
     """
     ctx.execute(query, params=params, method="DELETE")
+
+
+@cli.subcommand()
+def docs(
+    state: CanvasState, page: str = "index", use_domain: bool = arc.Flag(short="d")
+):
+    """Open Canvas API docs in your browser
+
+    # Arguments
+    page: The page you want to open. Defaults to 'index'
+    use_domain: Use the Canvas domain from the config file. Otherwise, use 'canvas.instructure.com'
+    """
+
+    domain = state.config["domain"] if use_domain else "canvas.instructure.com"
+    webbrowser.open(f"https://{domain}/doc/api/{page}.html")
