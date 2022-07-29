@@ -1,55 +1,37 @@
+import json
+from pathlib import Path
 import typing as t
-import re
-import sys
 from typing import Literal
 import webbrowser
+from result import Err, Ok
 import toml
 import xdg
 import arc
 import requests
 import rich
-from rich.pretty import pprint
 from urllib import parse
 
-
-class CanvasApi(requests.Session):
-    def __init__(self, prefix_url: str, token: str, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.prefix_url = prefix_url
-        self.token = token
-
-    def request(self, method, url, *args, **kwargs):
-        url = url if url.startswith("http") else parse.urljoin(self.prefix_url, url)
-        headers = kwargs.get("headers", {})
-        headers["Authorization"] = f"Bearer {self.token}"
-        kwargs["headers"] = headers
-        return super().request(method, url, *args, **kwargs)
+from . import option, utils
+from .api import get_canvas_api
 
 
-class CanvasState(arc.types.State):
-    api: CanvasApi
-    config: dict
+HTTPMethod = Literal[
+    "GET", "POST", "PUT", "DELETE", "HEAD", "CONNECT", "OPTIONS", "TRACE", "PATCH"
+]
 
 
-@arc.decorator()
-def init(ctx):
-    config = toml.load("canvas.toml")
-    ctx.state["config"] = config
-    url = f"https://{config['domain']}/api/v1/"
-    ctx.state["api"] = CanvasApi(prefix_url=url, token=config["token"])
-    yield
+CONFIG_PATH = xdg.xdg_config_home() / "canvas.toml"
 
 
 cli = arc.namespace("canvas")
 
-cli.decorators.add(init)
-
-
-Methods = Literal["GET", "POST", "PUT", "DELETE", "get", "post", "put", "delete"]
-
-
-def info(string: str):
-    rich.print(string, file=sys.stderr)
+class JSON(dict):
+    @classmethod
+    def __convert__(cls, value: str):
+        try:
+            return json.loads(value[0])
+        except json.JSONDecodeError as e:
+            raise arc.ExecutionError(f"Failed parsing JSON body: {str(e).split(':')[0]}")
 
 
 @arc.group
@@ -61,6 +43,17 @@ class QueryParams:
         description="Append to the query string",
         default=[],  # This default collection type isn't working for some reason
     )
+    instance: str = arc.Option(
+        short="i", description="What Canvas instance to interact with", default=None
+    )
+
+    config: Path = arc.Option(
+        short="c",
+        description=f"Path to configuration file to use. Defaults to {CONFIG_PATH}",
+        envvar="CANVAS_API_CONFIG",
+        default=CONFIG_PATH,
+    )
+
     raw: bool = arc.Flag(
         short="r",
         description="Don't perform any formatting on the body content. Useful if you want to pipe the data somewhere",
@@ -69,41 +62,49 @@ class QueryParams:
         short="p", description="Display pagination information, if it exists"
     )
 
+    data: JSON = arc.Option(short="d", default=None)
+
+
 
 @cli.subcommand(("query", "q"))
 def query(
     params: QueryParams,
-    state: CanvasState,
-    method: Methods = arc.Option(short="M", default="GET"),
+    ctx: arc.Context,
+    method: HTTPMethod = arc.Option(short="M", default="GET"),
 ):
     """Query a Canvas API endpoint
 
     # Arguments
     method: HTTP method to use
     """
-    params.query = params.query or []
-    query_params = {key: value for key, value in (v.split("=") for v in params.query)}
-    res = state.api.request(method, params.endpoint, params=query_params)
 
-    if params.raw:
-        print(res.text)
+
+    config_wrapper = utils.get_config(params.config)
+    if isinstance(config_wrapper, Ok):
+        config = config_wrapper.unwrap()
     else:
-        rich.print_json(res.text)
+        raise arc.ExecutionError(f"Config file missing: {config_wrapper.err()}")
 
-    if method.lower() == "get" and res.headers["Link"] and params.pagination:
-        regex = re.compile(r"<(.+)>; rel=\"(.+)\"")
-        info("Result was paginated")
-        for data in res.headers["Link"].split(","):
-            if match := regex.match(data):
-                url, relation = match.groups()
-                url = url[len(state.api.prefix_url) :]
-                parsed = parse.urlparse(url)
-                query = ""
-                for param in parsed.query.split("&"):
-                    query += f" -q {param}"
-                info(f"[bold]{relation}[/bold]: canvas g {parsed.path}{query}")
+    match get_canvas_api(config, params.instance):
+        case Ok(api):
+            params.query = params.query or []
+            query_params = {
+                key: value for key, value in (v.split("=") for v in params.query)
+            }
+            endpoint = params.endpoint.lstrip("/")
+            res = api.request(method, endpoint, json=params.data, params=query_params)
+            utils.disply_res(res)
+            if not res.ok:
+                ctx.exit(1)
 
-    return res
+            if params.pagination:
+                option.Some(
+                    "Link"
+                ) | res.headers.get | utils.parse_link_header | utils.display_pagination
+
+        case Err(e):
+            message = f"{e}\ncheck config file: {params.config}"
+            raise arc.ExecutionError(message)
 
 
 @cli.subcommand(("get", "g"))
@@ -143,15 +144,11 @@ def delete(params: QueryParams, ctx: arc.Context):
 
 
 @cli.subcommand()
-def docs(
-    state: CanvasState, page: str = "index", use_domain: bool = arc.Flag(short="d")
-):
+def docs(page: str = "index"):
     """Open Canvas API docs in your browser
 
     # Arguments
     page: The page you want to open. Defaults to 'index'
-    use_domain: Use the Canvas domain from the config file. Otherwise, use 'canvas.instructure.com'
     """
 
-    domain = state.config["domain"] if use_domain else "canvas.instructure.com"
-    webbrowser.open(f"https://{domain}/doc/api/{page}.html")
+    webbrowser.open(f"https://canvas.instructure.com/doc/api/{page}.html")
