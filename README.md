@@ -3,6 +3,7 @@
 This is a CLI wrapper around the [Canvas LMS API](https://canvas.instructure.com/doc/api/index.html)
 
 ## Installation
+Installation requires Python 3.10
 
 ```
 $ pip install canvas-api-cli
@@ -70,12 +71,31 @@ $ canvas get accounts/:account_id/users
 Query Parameters are added using the `-q` option
 
 ```
-$ canvas get :course_id/assignments -q include[]=submission
+$ canvas get :course_id/assignments -q include[]=submission -q all_dates=true
+```
+
+### Request Body
+The request body for POST or PUT requests is passed in via the `-d` option
+
+Either as a JSON string:
+```
+$ canvas put courses/:course_id/assignments/:assignment_id  -d '
+     {
+       "assignment": {
+         "name": "New Test Name"
+       }
+     }
+     '
+```
+
+Or a filename
+```
+$ canvas put courses/:course_id/assignments/:assignment_id  -d @file.json
 ```
 
 
-### Request Body
-
 ### Piping
 When you pipe the output of `canvas` to another program, syntax highlighting will not be added. This is convenient, because it allows you to pipe to other programs like `jq` very easily.
-Additionally, any info that is not the JSON response from Canvas is written to `stderr` instead of `stdout`, so you don't have to worry abou tthose
+Additionally, any info that is not the JSON response from Canvas is written to `stderr` instead of `stdout`, so you don't have to worry abou those
+
+The JSON output will still be formatted. If you want to disable all of that you can use the `--raw` flag

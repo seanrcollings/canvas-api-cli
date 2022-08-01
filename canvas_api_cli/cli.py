@@ -25,20 +25,35 @@ CONFIG_PATH = xdg.xdg_config_home() / "canvas.toml"
 
 cli = arc.namespace("canvas")
 
+
 @arc.error_handler(UnwrapError, inherit=True)
 def handle_unwrap(e: UnwrapError, ctx: arc.Context):
     print(f"{e}: {e.result.err()}")
     ctx.exit(1)
 
+
 cli.decorators.add(handle_unwrap)
+
 
 class JSON(dict):
     @classmethod
     def __convert__(cls, value: str):
+        value = value[0]
+
+        if value.startswith("@"):
+            path = Path(value.lstrip("@"))
+            if path.exists() and path.is_file():
+                with path.open("r") as f:
+                    value = f.read()
+            else:
+                raise arc.ConversionError(path, "file does not exist")
+
         try:
-            return json.loads(value[0])
+            return json.loads(value)
         except json.JSONDecodeError as e:
-            raise arc.ExecutionError(f"Failed parsing JSON body: {str(e).split(':')[0]}")
+            raise arc.ConversionError(
+                value, f"failed parsing JSON body: {str(e).split(':')[0]}"
+            )
 
 
 @arc.group
@@ -69,7 +84,14 @@ class QueryParams:
         short="p", description="Display pagination information, if it exists"
     )
 
-    data: JSON = arc.Option(short="d", default=None)
+    data: JSON = arc.Option(
+        short="d",
+        default=None,
+        description=(
+            "Provide body data for POST or PUT requests. "
+            "Expected to either be a valid JSON string, or a filename prepended with an @ sign"
+        ),
+    )
 
 
 @cli.subcommand(("query", "q"))
@@ -87,7 +109,9 @@ def query(
     api = get_canvas_api(config, params.instance).expect("Invalid configuration")
 
     params.query = params.query or []
-    query_params = utils.get_query_params(params.query).expect("Failed to parse query param")
+    query_params = utils.get_query_params(params.query).expect(
+        "Failed to parse query param"
+    )
     endpoint = params.endpoint.lstrip("/")
 
     res = api.request(method, endpoint, json=params.data, params=query_params)
@@ -101,10 +125,6 @@ def query(
         option.Some(
             "Link"
         ) | res.headers.get | utils.parse_link_header | utils.display_pagination
-
-    print(res.request.path_url)
-
-
 
 
 @cli.subcommand(("get", "g"))
