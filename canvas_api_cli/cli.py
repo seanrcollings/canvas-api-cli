@@ -3,7 +3,7 @@ from pathlib import Path
 import typing as t
 from typing import Literal
 import webbrowser
-from result import Err, Ok
+from result import Err, Ok, UnwrapError
 import toml
 import xdg
 import arc
@@ -24,6 +24,13 @@ CONFIG_PATH = xdg.xdg_config_home() / "canvas.toml"
 
 
 cli = arc.namespace("canvas")
+
+@arc.error_handler(UnwrapError, inherit=True)
+def handle_unwrap(e: UnwrapError, ctx: arc.Context):
+    print(f"{e}: {e.result.err()}")
+    ctx.exit(1)
+
+cli.decorators.add(handle_unwrap)
 
 class JSON(dict):
     @classmethod
@@ -65,7 +72,6 @@ class QueryParams:
     data: JSON = arc.Option(short="d", default=None)
 
 
-
 @cli.subcommand(("query", "q"))
 def query(
     params: QueryParams,
@@ -77,34 +83,28 @@ def query(
     # Arguments
     method: HTTP method to use
     """
+    config = utils.get_config(params.config).expect("Config file missing")
+    api = get_canvas_api(config, params.instance).expect("Invalid configuration")
+
+    params.query = params.query or []
+    query_params = utils.get_query_params(params.query).expect("Failed to parse query param")
+    endpoint = params.endpoint.lstrip("/")
+
+    res = api.request(method, endpoint, json=params.data, params=query_params)
+
+    utils.disply_res(res, params.raw)
+
+    if not res.ok:
+        ctx.exit(1)
+
+    if params.pagination:
+        option.Some(
+            "Link"
+        ) | res.headers.get | utils.parse_link_header | utils.display_pagination
+
+    print(res.request.path_url)
 
 
-    config_wrapper = utils.get_config(params.config)
-    if isinstance(config_wrapper, Ok):
-        config = config_wrapper.unwrap()
-    else:
-        raise arc.ExecutionError(f"Config file missing: {config_wrapper.err()}")
-
-    match get_canvas_api(config, params.instance):
-        case Ok(api):
-            params.query = params.query or []
-            query_params = {
-                key: value for key, value in (v.split("=") for v in params.query)
-            }
-            endpoint = params.endpoint.lstrip("/")
-            res = api.request(method, endpoint, json=params.data, params=query_params)
-            utils.disply_res(res)
-            if not res.ok:
-                ctx.exit(1)
-
-            if params.pagination:
-                option.Some(
-                    "Link"
-                ) | res.headers.get | utils.parse_link_header | utils.display_pagination
-
-        case Err(e):
-            message = f"{e}\ncheck config file: {params.config}"
-            raise arc.ExecutionError(message)
 
 
 @cli.subcommand(("get", "g"))

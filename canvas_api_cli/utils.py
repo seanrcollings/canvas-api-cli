@@ -19,7 +19,7 @@ def parse_link_header(header: str):
     for data in header.split(","):
         if match := link_regex.match(data):
             url, relation = match.groups()
-            parsed[relation] = url
+            parsed[relation] = parse.unquote(url)
 
     return parsed
 
@@ -37,9 +37,6 @@ def get_config(path: Path) -> Result[dict[str, t.Any], str]:
     config = toml.load(path)
 
     return Ok(config)
-
-
-
 
 
 def disply_res(res: requests.Response, raw: bool = False):
@@ -65,3 +62,17 @@ def display_pagination(links: dict[str, str]):
             f"[bold]{relation}[/bold]: canvas g "
             f"[magenta]{endpoint}[/magenta] {query}"
         )
+
+
+def get_query_params(lst: list[str]) -> Result[list[tuple[str, str]], str]:
+    res: list[tuple[str, str]] = []
+
+    for query in lst:
+        if "=" not in query:
+            return Err(f"Invalid query param: {query}")
+
+        name, value = query.split("=")
+
+        res.append((name, value))
+
+    return Ok(res)
