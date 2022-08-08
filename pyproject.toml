@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "canvas-api-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "Canvas LMS API wrapper"
 readme="README.md"
 authors = ["Sean Collings <sean.collings@atomicjolt.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-arc-cli = "^7.0.0"
+arc-cli = "^7.0.2"
 rich = "^12.5.1"
 requests = "^2.28.1"
 toml = "^0.10.2"

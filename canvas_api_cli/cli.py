@@ -22,9 +22,11 @@ HTTPMethod = Literal[
 
 CONFIG_PATH = xdg.xdg_config_home() / "canvas.toml"
 
+arc.configure(version="0.2.0")
 
-cli = arc.namespace("canvas")
-
+@arc.command("canvas")
+def cli():
+    ...
 
 @arc.error_handler(UnwrapError, inherit=True)
 def handle_unwrap(e: UnwrapError, ctx: arc.Context):
@@ -32,14 +34,13 @@ def handle_unwrap(e: UnwrapError, ctx: arc.Context):
     ctx.exit(1)
 
 
-cli.decorators.add(handle_unwrap)
+cli.add_decorator(handle_unwrap)
+
 
 
 class JSON(dict):
     @classmethod
     def __convert__(cls, value: str):
-        value = value[0]
-
         if value.startswith("@"):
             path = Path(value.lstrip("@"))
             if path.exists() and path.is_file():
@@ -58,36 +59,36 @@ class JSON(dict):
 
 @arc.group
 class QueryParams:
-    endpoint: str = arc.Argument(description="The Canvas Endpoint to hit")
+    endpoint: str = arc.Argument(desc="The Canvas Endpoint to hit")
 
     query: list[str] = arc.Option(
         short="q",
-        description="Append to the query string",
+        desc="Append to the query string",
         default=[],  # This default collection type isn't working for some reason
     )
     instance: str = arc.Option(
-        short="i", description="What Canvas instance to interact with", default=None
+        short="i", desc="What Canvas instance to interact with", default=None
     )
 
     config: Path = arc.Option(
         short="c",
-        description=f"Path to configuration file to use. Defaults to {CONFIG_PATH}",
+        desc=f"Path to configuration file to use. Defaults to {CONFIG_PATH}",
         envvar="CANVAS_API_CONFIG",
         default=CONFIG_PATH,
     )
 
     raw: bool = arc.Flag(
         short="r",
-        description="Don't perform any formatting on the body content. Useful if you want to pipe the data somewhere",
+        desc="Don't perform any formatting on the body content. Useful if you want to pipe the data somewhere",
     )
     pagination: bool = arc.Flag(
-        short="p", description="Display pagination information, if it exists"
+        short="p", desc="Display pagination information, if it exists"
     )
 
     data: JSON = arc.Option(
         short="d",
         default=None,
-        description=(
+        desc=(
             "Provide body data for POST or PUT requests. "
             "Expected to either be a valid JSON string, or a filename prepended with an @ sign"
         ),
