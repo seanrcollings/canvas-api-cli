@@ -24,19 +24,10 @@ CONFIG_PATH = xdg.xdg_config_home() / "canvas.toml"
 
 arc.configure(version="0.2.0")
 
-@arc.command("canvas")
-def cli():
-    ...
-
 @arc.error_handler(UnwrapError, inherit=True)
 def handle_unwrap(e: UnwrapError, ctx: arc.Context):
-    print(f"{e}: {e.result.err()}")
-    ctx.exit(1)
-
-
-cli.add_decorator(handle_unwrap)
-
-
+    arc.print(f"{e}: {e.result.err()}")
+    arc.exit(1)
 
 class JSON(dict):
     @classmethod
@@ -94,11 +85,15 @@ class QueryParams:
         ),
     )
 
+@handle_unwrap
+@arc.command("canvas")
+def cli():
+    ...
+
 
 @cli.subcommand(("query", "q"))
 def query(
     params: QueryParams,
-    ctx: arc.Context,
     method: HTTPMethod = arc.Option(short="M", default="GET"),
 ):
     """Query a Canvas API endpoint
@@ -120,7 +115,7 @@ def query(
     utils.disply_res(res, params.raw)
 
     if not res.ok:
-        ctx.exit(1)
+        arc.exit(1)
 
     if params.pagination:
         option.Some(
