@@ -1,15 +1,13 @@
+from importlib import metadata
 import json
 from pathlib import Path
 import typing as t
 from typing import Literal
 import webbrowser
-from result import Err, Ok, UnwrapError
-import toml
+from result import UnwrapError
 import xdg
 import arc
-import requests
-import rich
-from urllib import parse
+from arc import color
 
 from . import option, utils
 from .api import get_canvas_api
@@ -22,12 +20,11 @@ HTTPMethod = Literal[
 
 CONFIG_PATH = xdg.xdg_config_home() / "canvas.toml"
 
-arc.configure(version="0.2.0")
+arc.configure(
+    version=metadata.version("canvas-api-cli"),
+    present=arc.PresentConfig(color=arc.ColorConfig(accent=color.fg.hex("#e4060f"))),
+)
 
-@arc.error_handler(UnwrapError, inherit=True)
-def handle_unwrap(e: UnwrapError, ctx: arc.Context):
-    arc.print(f"{e}: {e.result.err()}")
-    arc.exit(1)
 
 class JSON(dict):
     @classmethod
@@ -57,6 +54,7 @@ class QueryParams:
         desc="Append to the query string",
         default=[],  # This default collection type isn't working for some reason
     )
+
     instance: str = arc.Option(
         short="i", desc="What Canvas instance to interact with", default=None
     )
@@ -72,6 +70,7 @@ class QueryParams:
         short="r",
         desc="Don't perform any formatting on the body content. Useful if you want to pipe the data somewhere",
     )
+
     pagination: bool = arc.Flag(
         short="p", desc="Display pagination information, if it exists"
     )
@@ -85,22 +84,22 @@ class QueryParams:
         ),
     )
 
-@handle_unwrap
-@arc.command("canvas")
-def cli():
-    ...
+
+cli = arc.namespace("canvas", desc="Interact with the Canvas API from the command line")
 
 
-@cli.subcommand(("query", "q"))
+@cli.handle(UnwrapError)
+def handle_unwrap(ctx: arc.Context, e: UnwrapError):
+    arc.print(f"{e}: {e.result.err()}")
+    arc.exit(1)
+
+
+@cli.subcommand("query", "q")
 def query(
     params: QueryParams,
-    method: HTTPMethod = arc.Option(short="M", default="GET"),
+    method: HTTPMethod = arc.Option(short="M", default="GET", desc="HTTP method"),
 ):
-    """Query a Canvas API endpoint
-
-    # Arguments
-    method: HTTP method to use
-    """
+    """Query a Canvas API endpoint"""
     config = utils.get_config(params.config).expect("Config file missing")
     api = get_canvas_api(config, params.instance).expect("Invalid configuration")
 
@@ -123,7 +122,7 @@ def query(
         ) | res.headers.get | utils.parse_link_header | utils.display_pagination
 
 
-@cli.subcommand(("get", "g"))
+@cli.subcommand("get", "g")
 def get(params: QueryParams, ctx: arc.Context):
     """Perform a GET request to the Canvas API
 
@@ -132,7 +131,7 @@ def get(params: QueryParams, ctx: arc.Context):
     ctx.execute(query, params=params, method="GET")
 
 
-@cli.subcommand(("post", "p"))
+@cli.subcommand("post", "p")
 def post(params: QueryParams, ctx: arc.Context):
     """Perform a POST request to the Canvas API
 
@@ -141,7 +140,7 @@ def post(params: QueryParams, ctx: arc.Context):
     ctx.execute(query, params=params, method="POST")
 
 
-@cli.subcommand(("put", "u"))
+@cli.subcommand("put", "u")
 def put(params: QueryParams, ctx: arc.Context):
     """Perform a PUT request to the Canvas API
 
@@ -150,7 +149,7 @@ def put(params: QueryParams, ctx: arc.Context):
     ctx.execute(query, params=params, method="PUT")
 
 
-@cli.subcommand(("delete", "d"))
+@cli.subcommand("delete", "d")
 def delete(params: QueryParams, ctx: arc.Context):
     """Perform a DELETE request to the Canvas API
 
