@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "canvas-api-cli"
-version = "0.2.1"
+version = "0.3.0"
 description = "Canvas LMS API wrapper"
 readme="README.md"
 authors = ["Sean Collings <sean.collings@atomicjolt.com>"]
